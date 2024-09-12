@@ -40,7 +40,7 @@ class Model(nn.Module):
         
     @classmethod
     def from_pretrained(cls, path, sentence_transformer_path, base_model_path):
-        encoder = load_encoder(sentence_transformer_path).to(dtype = torch.bfloat16)
+        encoder = load_encoder(sentence_transformer_path).to(dtype = torch.bfloat16).to('cuda')
         projector = MultiHeadProjector(
             projector_type="mlp2x_gelu",
             encoder_hidden_size=3584,
@@ -48,15 +48,18 @@ class Model(nn.Module):
             num_heads=1,
             torch_dtype=torch.bfloat16,
             multihead=False
-        )
-        decoder = AutoModelForCausalLM.from_pretrained(base_model_path).to(dtype = torch.bfloat16)
+        ).to('cuda')
+        decoder = AutoModelForCausalLM.from_pretrained(base_model_path).to(dtype = torch.bfloat16).to('cuda')
         tokenizer = AutoTokenizer.from_pretrained(path)
         encoder_tokenizer = transformers.AutoTokenizer.from_pretrained(sentence_transformer_path)
-        model = cls(encoder=encoder, projector=projector, decoder=decoder, tokenizer=tokenizer, torch_dtype=torch.bfloat16, encoder_tokenizer=encoder_tokenizer).to(dtype = torch.bfloat16)
+        model = cls(encoder=encoder, projector=projector, decoder=decoder, tokenizer=tokenizer, torch_dtype=torch.bfloat16, encoder_tokenizer=encoder_tokenizer).to(dtype = torch.bfloat16, device = 'cuda')
         print('model initialized')
 
-        model.load_state_dict(load_file(os.path.join(path, 'model.safetensors'))) 
+        model.load_state_dict(load_file(os.path.join(path, 'model.safetensors')))
         print('model loaded')
+        # tokenizer_ = AutoTokenizer.from_pretrained(base_model_path)
+        # tokenizer_.save_pretrained("./encoder_model")
+        # model.decoder.cpu().save_pretrained("./encoder_model")
         return model
 
     
@@ -205,7 +208,9 @@ class Model(nn.Module):
         # if path_csv == None or (type(path_csv) == list and len(path_csv) == 0):
         #     input_tensor = self.tokenizer(input_str, return_tensors='pt').to(device = self.decoder.device)
         #     return self.decoder.generate(**input_tensor, max_new_tokens=max_new_tokens, **kwargs)
-        
+        input_str = [input_str]
+        path_csv = [path_csv]
+
         bs = len(input_str)
         if '<insert_embs>' in input_str[0]: # TODO: 支持文本、表格混杂的输入
             table_embeds = self.get_encoder_output(path_csv)
@@ -248,8 +253,6 @@ class Model(nn.Module):
 
         inputs_embeds = inputs_embeds_padded
         attention_mask = attention_mask_padded
-        
-        
         
         ret = self.decoder.generate(
             max_new_tokens=max_new_tokens,
